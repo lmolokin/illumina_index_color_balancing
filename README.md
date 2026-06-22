@@ -1,1 +1,3 @@
-[Open Tool](https://github.com/lmolokin/illumina_index_color_balancing/two_channel_chemistry.html)
+[Open Tool](https://lmolokin.github.io/illumina_index_color_balancing/two_channel_chemistry.html)
+
+
