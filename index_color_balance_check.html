@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Illumina 2-Channel Index Color Balance</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#fbfcfb; --panel-2:#f4f6f3;
+    --panel-border:#e3e7e1; --panel-border-strong:#d2d8cf;
+    --ink:#1d231c; --ink-dim:#586553; --ink-faint:#8d9889;
+    --mono:"JetBrains Mono","SF Mono",Menlo,Consolas,"Courier New",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    /* emission (main grid) */
+    --blue:#2563eb; --blue-text:#1d4ed8; --blue-fill:rgba(37,99,235,0.28);
+    --green:#15a04a; --green-text:#147a38; --green-fill:rgba(21,160,74,0.30);
+    --dark-fill:rgba(20,30,18,0.12); --dark-text:#9aa292;
+    /* base-identity (composition plot): G brown, T red, C blue, A green */
+    --base-A:#15a04a; --base-C:#2563eb; --base-G:#9c6b3f; --base-T:#d6452f;
+    --grid-line:rgba(20,30,18,0.10);
+    --warn:#d98a1f; --bad:#d6452f; --good:#15a04a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+  body{padding:34px 30px 64px;max-width:1200px;margin:0 auto;font-size:15px;}
+
+  .masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:26px;border-bottom:1px solid var(--panel-border);padding-bottom:20px;margin-bottom:26px;flex-wrap:wrap;}
+  .masthead h1{font-size:24px;font-weight:600;margin:0 0 6px;letter-spacing:0.2px;}
+  .masthead p{margin:0;color:var(--ink-dim);font-size:15px;max-width:1200px;line-height:1.55;}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:16px;color:var(--ink-dim);font-family:var(--mono);}
+  .legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+  .swatch{width:16px;height:16px;border-radius:3px;flex-shrink:0;border:1px solid rgba(0,0,0,0.07);}
+  .sw-blue{background:var(--blue);} .sw-green{background:var(--green);}
+  .sw-both{background:linear-gradient(135deg,var(--blue) 0 50%,var(--green) 50% 100%);}
+  .sw-dark{background:var(--dark-text);}
+  .sw-bA{background:var(--base-A);} .sw-bC{background:var(--base-C);} .sw-bG{background:var(--base-G);} .sw-bT{background:var(--base-T);}
+
+  .panel{background:var(--panel);border:1px solid var(--panel-border);border-radius:11px;padding:20px 22px;margin-bottom:24px;}
+  .panel-label{font-size:13px;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-faint);margin:0 0 12px;font-weight:600;}
+
+  .tabs{display:flex;gap:4px;margin-bottom:18px;background:var(--panel-2);padding:4px;border-radius:9px;width:fit-content;}
+  .tab{padding:9px 18px;border-radius:7px;font-size:14px;font-weight:500;color:var(--ink-dim);cursor:pointer;border:none;background:transparent;}
+  .tab.active{background:var(--blue);color:#fff;box-shadow:0 1px 4px rgba(37,99,235,0.25);}
+
+  textarea{width:100%;min-height:218px;background:#fff;border:1px solid var(--panel-border-strong);border-radius:8px;color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.65;padding:13px 15px;resize:vertical;outline:none;}
+  textarea:focus{border-color:var(--blue);}
+  textarea::placeholder{color:var(--ink-faint);}
+
+  .controls-row{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:12px;}
+  .controls-row .left{font-size:14px;color:var(--ink-faint);font-family:var(--mono);}
+  .options{display:flex;gap:20px;align-items:center;flex-wrap:wrap;}
+  .opt-label{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--ink-dim);cursor:pointer;user-select:none;}
+  .opt-label input[type=checkbox]{accent-color:var(--blue);width:15px;height:15px;}
+  select{background:#fff;border:1px solid var(--panel-border-strong);color:var(--ink);font-family:var(--sans);font-size:14px;border-radius:6px;padding:6px 9px;cursor:pointer;}
+  button{background:#fff;border:1px solid var(--panel-border-strong);color:var(--ink);font-family:var(--sans);font-size:14px;font-weight:500;padding:9px 16px;border-radius:7px;cursor:pointer;}
+  button:hover{background:var(--panel-2);border-color:#b9c1b3;}
+  button#analyzeBtn,button#analyzeBtn2{background:var(--blue);border-color:var(--blue);color:#fff;}
+  button#analyzeBtn:hover,button#analyzeBtn2:hover{background:#1d54cf;}
+  button.ghost{background:transparent;color:var(--ink-dim);}
+
+  .errors{margin-top:12px;font-size:13.5px;color:var(--warn);font-family:var(--mono);line-height:1.6;}
+
+  /* selector panel */
+  .sel-controls{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;}
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:12.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;}
+  .field input[type=text]{background:#fff;border:1px solid var(--panel-border-strong);border-radius:6px;padding:7px 10px;font-size:14px;font-family:var(--mono);outline:none;min-width:180px;width:350px}
+  .field input[type=text]:focus{border-color:var(--blue);}
+  .read-toggle{display:flex;gap:0;border:1px solid var(--panel-border-strong);border-radius:6px;overflow:hidden;}
+  .read-toggle button{border:none;border-radius:0;background:#fff;font-size:13.5px;padding:7px 13px;color:var(--ink-dim);}
+  .read-toggle button.active{background:var(--blue);color:#fff;}
+
+  /*.idx-list{max-height:300px;overflow-y:auto;border:1px solid var(--panel-border);border-radius:8px;background:#fff;display:grid;grid-auto-flow:column;grid-template-rows:repeat(auto-fill,minmax(30px,auto));grid-auto-rows:40x;grid-auto-columns:168px;gap:1px;*/
+  
+  .idx-list{
+    max-height: 235px;                     /* increase as needed */
+    overflow-y: auto;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    background: #fff;
+    column-fill:auto;
+    column-width: 150px;
+    column-gap: 4px;
+    padding:4px;
+    padding-top: 15px 
+  } 
+
+  .idx-item{display:flex;
+      min-height:10px;
+      align-items:center;
+      gap:12px;
+      padding-top: 2px;
+      padding-bottom: 2px;
+      padding-left: 11px;
+      padding-right:11px;
+      font-size:13.5px;
+      cursor:pointer;
+      border-radius:4px;}
+
+  .idx-item:hover{background:var(--panel-2);}
+  .idx-item input{accent-color:var(--blue);width:15px;height:15px;flex-shrink:0;}
+  .idx-item .nm{font-family:var(--mono);font-weight:500;display:inline-block; width:150px;}
+  .idx-item .wl{font-family:var(--mono);color:var(--ink-faint);font-size:12.5px;}
+  .idx-item.hidden{display:none;}
+  .idx-list.plate-mode{columns:unset;max-height:none;overflow-y:visible;padding:2px 0 6px;background:transparent;border:none;}
+  .idx-list.search-mode{columns:unset;max-height:235px;overflow-y:auto;padding:4px;background:#fff;border:1px solid var(--panel-border);border-radius:8px;}
+  .plate-grid{overflow-x:auto;}
+  .plate-table{border-collapse:separate;border-spacing:2px;}
+  .plate-corner{width:22px;}
+  .plate-head{padding:2px 6px;font-size:11px;font-weight:600;color:var(--ink-dim);text-align:center;cursor:pointer;user-select:none;border-radius:4px;white-space:nowrap;background:var(--panel-2);border:1px solid var(--panel-border);}
+  .plate-head:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
+  .plate-head.all-sel{background:rgba(37,99,235,0.12);border-color:var(--blue);color:var(--blue-text);}
+  .plate-cell{display:block;min-width:60px;height:24px;border:1px solid var(--panel-border);border-radius:4px;font-size:14px;font-family:var(--mono);cursor:pointer;background:#fff;text-align:center;line-height:24px;padding:0 3px;white-space:nowrap;overflow:hidden;user-select:none;}
+  .plate-cell:hover{border-color:#93aff5;background:rgba(37,99,235,0.05);}
+  .plate-cell.sel{background:rgba(37,99,235,0.14);border-color:var(--blue);color:var(--blue-text);font-weight:700;}
+  .plate-cell.filt-hidden{opacity:0.15;pointer-events:none;}
+  .sel-actions{display:flex;gap:10px;align-items:center;margin:14px 0 4px;flex-wrap:wrap;}
+  .sel-count{font-size:14px;color:var(--ink-dim);font-family:var(--mono);}
+
+  .plot-legend{display:flex;flex-direction:column;gap:10px;margin:0 0 16px;padding:12px 16px;background:var(--panel-2);border-radius:9px;font-size:13.5px;color:var(--ink-dim);}
+  .plot-legend .group{display:flex;align-items:center;gap:9px;}
+  .plot-legend .group-name{font-weight:600;color:var(--ink);font-size:13px;}
+  .plot-legend .chip{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+
+  .grid-wrap{overflow-x:auto;border-radius:11px;border:1px solid var(--panel-border);background:var(--panel);}
+  .grid-scroll{display:inline-block;min-width:100%;}
+  .seq-table{border-collapse:collapse;font-family:var(--mono);}
+  .seq-table td,.seq-table th{text-align:center;padding:0;font-size:15px;}
+  .idx-col{position:sticky;left:0;background:var(--panel);z-index:2;text-align:right !important;padding:0 12px 0 18px !important;color:var(--ink-dim);font-size:12.5px;border-right:1px solid var(--panel-border);white-space:nowrap;}
+  .pos-head{color:var(--ink-faint);font-size:12px;padding:10px 0 5px;border-bottom:1px solid var(--panel-border);min-width:30px;}
+  .pos-head.tick{color:var(--ink-dim);font-weight:600;}
+  .row-label-head{position:sticky;left:0;background:var(--panel);z-index:2;border-right:1px solid var(--panel-border);border-bottom:1px solid var(--panel-border);}
+
+  .base-cell{width:30px;height:32px;min-width:30px;font-weight:700;font-size:15px;position:relative;}
+  .base-cell .bg{position:absolute;inset:1px;border-radius:3px;}
+  .base-cell .ch{position:relative;z-index:1;}
+  .bg-blue{background:var(--blue-fill);} .bg-green{background:var(--green-fill);}
+  .bg-dark{background:var(--dark-fill);}
+  .bg-both{background:linear-gradient(135deg,var(--blue-fill) 0 50%,var(--green-fill) 50% 100%);}
+  .fg-blue{color:var(--blue-text);} .fg-green{color:var(--green-text);}
+  .fg-both{background:linear-gradient(135deg,var(--blue-text) 0%,var(--blue-text) 45%,var(--green-text) 55%,var(--green-text) 100%);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .fg-dark{color:var(--dark-text);}
+
+  tr.data-row td{border-bottom:0px solid rgba(20,30,18,0.035);}
+  tr.data-row:hover td:not(.idx-col){background:rgba(37,99,235,0.045);}
+  tr.data-row:hover .idx-col{background:var(--panel-2);}
+
+  .summary-divider td{border-top:0px solid var(--panel-border-strong);height:0;padding:5;}
+  .summary-row td{padding:11px 0;vertical-align:middle;}
+  .summary-section-label{position:sticky;left:0;background:var(--panel);z-index:2;text-align:right;padding:11px 12px;color:var(--ink-dim);font-size:13px;border-right:1px solid var(--panel-border);white-space:nowrap;vertical-align:middle;line-height:1.4;}
+  .lbl-spacer{width:10px;min-width:10px;padding:0;border:none;background:inherit;}
+  .summary-section-label .axis{display:block;color:var(--ink-faint);font-size:11px;font-family:var(--mono);margin-top:3px;}
+
+  .stack-cell{width:30px;min-width:30px;padding:11px 2px;vertical-align:middle;}
+  .bar-shell{position:relative;width:100%;}
+  .mini-bar{display:flex;flex-direction:column-reverse;width:100%;height:108px;border-radius:3px;overflow:hidden;background:var(--panel-2);border:1px solid var(--panel-border);}
+  .mini-seg{width:100%;}
+  .bar-grid{position:absolute;inset:0;pointer-events:none;background-image:repeating-linear-gradient(to top,transparent 0,transparent 26px,var(--grid-line) 26px,var(--grid-line) 27px);border-radius:3px;}
+  .mid-line{position:absolute;left:0;right:0;top:50%;height:0;transform:translateY(-50%);border-top:2px dotted #000000;pointer-events:none;}
+
+  /* base composition plot segments (base-identity colors) */
+  .seg-bA{background:var(--base-A);} .seg-bC{background:var(--base-C);} .seg-bG{background:var(--base-G);} .seg-bT{background:var(--base-T);}
+  /* channel plot: green vs blue share only */
+  .seg-chGreen{background:var(--green);} .seg-chBlue{background:var(--blue);}
+
+  .flag-row td{padding-top:9px;padding-bottom:13px;}
+  .flag-cell{width:30px;min-width:30px;text-align:center;}
+  .flag-row .flag-cell{padding-top:19px;padding-bottom:19px;}
+  .flag-dot{width:9px;height:9px;border-radius:50%;margin:0 auto;background:transparent;}
+  .flag-warn{background:var(--warn);} .flag-bad{background:var(--bad);}
+
+  .stack-cell:hover .stat-tip{display:block;}
+  .stat-tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1d231c;border:1px solid #2c3329;color:#f3f5f1;font-family:var(--sans);font-size:13px;line-height:1.55;padding:7px 10px;border-radius:7px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none;text-align:left;box-shadow:0 4px 14px rgba(0,0,0,0.2);}
+  .stat-tip b{font-family:var(--mono);}
+
+  .empty-state{padding:44px 20px;text-align:center;color:var(--ink-faint);font-size:15px;}
+  .meta-line{font-size:13px;color:var(--ink-faint);font-family:var(--mono);margin-top:14px;}
+  .hidden-mode{display:none;}
+
+  ::-webkit-scrollbar{height:11px;width:11px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#d2d8cf;border-radius:6px;}
+  ::-webkit-scrollbar-thumb:hover{background:#bcc4b6;}
+</style>
+</head>
+<body>
+
+  <div class="masthead">
+    <div>
+      <h1>Illumina 2-Channel Index Color Balance</h1>
+      <p>Paste index sequences or pick them from an Illumina UD kit. Each base is shown by its two-channel emission, with per-position base composition and green/blue channel balance below &mdash; for spotting cycles at risk on two-channel chemistry (MiSeq i100, iSeq, NextSeq, MiniSeq).</p>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch sw-both"></span>A &middot; blue + green</div>
+      <div class="legend-item"><span class="swatch sw-blue"></span>C &middot; blue only</div>
+      <div class="legend-item"><span class="swatch sw-dark"></span>G &middot; dark (no signal)</div>
+      <div class="legend-item"><span class="swatch sw-green"></span>T &middot; green only</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="tabs">
+      <button class="tab active" data-mode="paste">Paste sequences</button>
+      <button class="tab" data-mode="select">Select from kit</button>
+    </div>
+
+    <div id="pasteMode">
+      <p class="panel-label">Input sequences</p>
+      <textarea id="seqInput" placeholder="Paste one sequence per line. Leading index/label columns (tab, space, or comma separated) are ignored automatically, e.g.:
+1  GAACTGAGCG
+2  AGGTCAGATA
+3  CGACATCCGA"></textarea>
+      <div class="controls-row">
+        <div class="left" id="inputMeta">0 sequences loaded</div>
+        <div class="options">
+          <button class="ghost" id="loadExample">load example</button>
+          <button id="analyzeBtn">analyze</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="selectMode" class="hidden-mode">
+      <div class="sel-controls">
+        <div class="field">
+          <label>kit</label>
+          <select id="kitSel">
+            <option value="A">Kit A (UDP0001&ndash;0096)</option>
+            <option value="B">Kit B (UDP0097&ndash;0192)</option>
+            <option value="C">Kit C (UDP0193&ndash;0288)</option>
+            <option value="D">Kit D (UDP0289&ndash;0384)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>find by</label>
+          <input type="text" id="idxSearch" placeholder="index name or well (e.g. UDP0007, B1)">
+        </div>
+        <div class="field">
+          <label>index read to analyze</label>
+          <div class="read-toggle" id="readToggle">
+            <button data-read="i7">i7 (Index 1)</button>
+            <button data-read="i5">i5 (Index 2)</button>
+            <button data-read="both" class="active">both</button>
+          </div>
+        </div>
+      </div>
+      <div class="sel-actions">
+        <button class="ghost" id="selAll">select all</button>
+        <button class="ghost" id="selNone">clear</button>
+        <span class="sel-count" id="selCount">0 selected</span>
+      </div>
+      <div class="idx-list" id="idxList"></div>
+      <div class="controls-row">
+        <div class="left" id="inputMeta2">0 sequences loaded</div>
+        <div class="options">
+          <button id="analyzeBtn2">analyze selected</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="errors" id="errorBox"></div>
+  </div>
+
+  <div id="resultsArea"></div>
+
+<script>
+const INDEX_DATA = [["A","UDP0001","A01","GAACTGAGCG","TCGTGGAGCG"],["A","UDP0002","B01","AGGTCAGATA","CTACAAGATA"],["A","UDP0003V3","C01","CGACATCCGA","TACGTTCATT"],["A","UDP0004","D01","ATTCCATAAG","TGCCTGGTGG"],["A","UDP0005V3","E01","CACAATAGGA","TCCATCCGAG"],["A","UDP0006","F01","AACATCGCGC","GTCCACTTGT"],["A","UDP0007","G01","CTAGTGCTCT","TGGAACAGTA"],["A","UDP0008","H01","GATCAAGGCA","CCTTGTTAAT"],["A","UDP0009","A02","GACTGAGTAG","GTTGATAGTG"],["A","UDP0010","B02","AGTCAGACGA","ACCAGCGACA"],["A","UDP0011","C02","CCGTATGTTC","CATACACTGT"],["A","UDP0012","D02","GAGTCATAGG","GTGTGGCGCT"],["A","UDP0013","E02","CTTGCCATTA","ATCACGAAGG"],["A","UDP0014","F02","GAAGCGGCAC","CGGCTCTACT"],["A","UDP0015","G02","TCCATTGCCG","GAATGCACGA"],["A","UDP0016","H02","CGGTTACGGC","AAGACTATAG"],["A","UDP0017","A03","GAGAATGGTT","TCGGCAGCAA"],["A","UDP0018","B03","AGAGGCAACC","CTAATGATGG"],["A","UDP0019","C03","CCATCATTAG","GGTTGCCTCT"],["A","UDP0020","D03","GATAGGCCGA","CGCACATGGC"],["A","UDP0021","E03","ATGGTTGACT","GGCCTGTCCT"],["A","UDP0022","F03","TATTGCGCTC","CTGTGTTAGG"],["A","UDP0023","G03","ACGCCTTGTT","TAAGGAACGT"],["A","UDP0024","H03","TTCTACATAC","CTAACTGTAA"],["A","UDP0025","A04","AACCATAGAA","GGCGAGATGG"],["A","UDP0026","B04","GGTTGCGAGG","AATAGAGCAA"],["A","UDP0027","C04","TAAGCATCCA","TCAATCCATT"],["A","UDP0028","D04","ACCACGACAT","TCGTATGCGG"],["A","UDP0029","E04","GCCGCACTCT","TCCGACCTCG"],["A","UDP0030","F04","CCACCAGGCA","CTTATGGAAT"],["A","UDP0031","G04","GTGACACGCA","GCTTACGGAC"],["A","UDP0032","H04","ACAGTGTATG","GAACATACGG"],["A","UDP0033","A05","TGATTATACG","GTCGATTACA"],["A","UDP0034","B05","CAGCCGCGTA","ACTAGCCGTG"],["A","UDP0035","C05","GGTAACTCGC","AAGTTGGTGA"],["A","UDP0036","D05","ACCGGCCGTA","TGGCAATATT"],["A","UDP0037","E05","TGTAATCGAC","GATCACCGCG"],["A","UDP0038","F05","GTGCAGACAG","TACCATCCGT"],["A","UDP0039","G05","CAATCGGCTG","GCTGTAGGAA"],["A","UDP0040","H05","TATGTAGTCA","CGCACTAATG"],["A","UDP0041","A06","ACTCGGCAAT","GACAACTGAA"],["A","UDP0042","B06","GTCTAATGGC","AGTGGTCAGG"],["A","UDP0043","C06","CCATCTCGCC","TTCTATGGTT"],["A","UDP0044","D06","CTGCGAGCCA","AATCCGGCCA"],["A","UDP0045","E06","CGTTATTCTA","CCATAAGGTT"],["A","UDP0046V3","F06","GCAACATGGA","CTTGTCTTAA"],["A","UDP0047","G06","GTCCTGGATA","CGGTGGCGAA"],["A","UDP0048","H06","CAGTGGCACT","TAACAATAGG"],["A","UDP0049","A07","AGTGTTGCAC","CTGGTACACG"],["A","UDP0050","B07","GACACCATGT","TCAACGTGTA"],["A","UDP0051","C07","CCTGTCTGTC","ACTGTTGTGA"],["A","UDP0052","D07","TGATGTAAGA","GTGCGTCCTT"],["A","UDP0053V3","E07","TAGTTCGGTA","CCATGTGTAG"],["A","UDP0054V3","F07","CTATTACTAC","GAGTCTCTCC"],["A","UDP0055V3","G07","TAGCATAACC","GCTATGCGCA"],["A","UDP0056V3","H07","ACTCTATTGT","ATCGCATATG"],["A","UDP0057","A08","TCTATCCTAA","CGTCGACTGG"],["A","UDP0058","B08","CTCGCTTCGG","TACTAGTCAA"],["A","UDP0059","C08","CTGTTGGTCC","ATAGACCGTT"],["A","UDP0060","D08","TTACCTGGAA","ACAGTTCCAG"],["A","UDP0061","E08","TGGCTAATCA","AGGCATGTAG"],["A","UDP0062","F08","AACACTGTTA","GCAAGTCTCA"],["A","UDP0063","G08","ATTGCGCGGT","TTGGCTCCGC"],["A","UDP0064","H08","TGGCGCGAAC","AACTGATACT"],["A","UDP0065","A09","TAATGTGTCT","GTAAGGCATA"],["A","UDP0066","B09","ATACCAACGC","AATTGCTGCG"],["A","UDP0067","C09","AGGATGTGCT","TTACAATTCC"],["A","UDP0068","D09","CACGGAACAA","AACCTAGCAC"],["A","UDP0069V3","E09","CCAAGGCCTT","TCGAAGTACT"],["A","UDP0070V3","F09","TTACTCCACA","GACACCGATG"],["A","UDP0071V3","G09","AGTAGAAGTG","CTAGCGTCGA"],["A","UDP0072V3","H09","TACGAGTCCA","TAGCGAAGCA"],["A","UDP0073V3","A10","TCTCATGATA","AACACGTGGA"],["A","UDP0074V3","B10","CGAGGCCAAG","GTGTTACCGG"],["A","UDP0075V3","C10","TTCACGAGAC","AGATTGTTAC"],["A","UDP0076V3","D10","GCGTGGATGG","TTGACCAATG"],["A","UDP0077","E10","TCTGGTATCC","CGTTGCTTAC"],["A","UDP0078","F10","CATTAGTGCG","TGACTACATA"],["A","UDP0079","G10","ACGGTCAGGA","CGGCCTCGTT"],["A","UDP0080","H10","GGCAAGCCAG","CAAGCATCCG"],["A","UDP0081","A11","TGTCGCTGGT","TCGTCTGACT"],["A","UDP0082","B11","ACCGTTACAA","CTCATAGCGA"],["A","UDP0083","C11","TATGCCTTAC","AGACACATTA"],["A","UDP0084V3","D11","ACTGGATCTA","TCGCCGCTAG"],["A","UDP0085","E11","TGGTACCTAA","CATGAGTACT"],["A","UDP0086","F11","TTGGAATTCC","ACGTCAATAC"],["A","UDP0087","G11","CCTCTACATG","GATACCTCCT"],["A","UDP0088","H11","GGAGCGTGTA","ATCCGTAAGT"],["A","UDP0089","A12","GTCCGTAAGC","CGTGTATCTT"],["A","UDP0090","B12","ACTTCAAGCG","GAACCATGAA"],["A","UDP0091","C12","TCAGAAGGCG","GGCCATCATA"],["A","UDP0092","D12","GCGTTGGTAT","ACATACTTCC"],["A","UDP0093","E12","ACATATCCAG","TATGTGCAAT"],["A","UDP0094","F12","TCATAGATTG","GATTAAGGTG"],["A","UDP0095","G12","GTATTCCACC","ATGTAGACAA"],["A","UDP0096","H12","CCTCCGTCCA","CACATCGGTG"],["B","UDP0097","A01","TGCCGGTCAG","CCTGATACAA"],["B","UDP0098","B01","CACTCAATTC","TTAAGTTGTG"],["B","UDP0099","C01","TCTCACACGC","CGGACAGTGA"],["B","UDP0100","D01","TCAATGGAGA","GCACTACAAC"],["B","UDP0101","E01","ATATGCATGT","TGGTGCCTGG"],["B","UDP0102V3","F01","CTAGCTTCAA","TGTGTAAGCT"],["B","UDP0103","G01","TCCGTTATGT","TTGTAGTGTA"],["B","UDP0104","H01","GGTCTATTAA","CCACGACACG"],["B","UDP0105","A02","CAGCAATCGT","TGTGATGTAT"],["B","UDP0106","B02","TTCTGTAGAA","GAGCGCAATA"],["B","UDP0107","C02","GAACGCAATA","ATCTTACTGT"],["B","UDP0108","D02","AGTACTCATG","ATGTCGTGGT"],["B","UDP0109","E02","GGTAGAATTA","GTAGCCATCA"],["B","UDP0110","F02","TAATTAGCGT","TGGTTAAGAA"],["B","UDP0111","G02","ATTAACAAGG","TGTTGTTCGT"],["B","UDP0112","H02","TGATGGCTAC","CCAACAACAT"],["B","UDP0113","A03","GAATTACAAG","ACCGGCTCAG"],["B","UDP0114","B03","TAGAATTGGA","GTTAATCTGA"],["B","UDP0115","C03","AGGCAGCTCT","CGGCTAACGT"],["B","UDP0116","D03","ATCGGCGAAG","TCCAAGAATT"],["B","UDP0117","E03","CCGTGACCGA","CCGAACGTTG"],["B","UDP0118","F03","ATACTTGTTC","TAACCGCCGA"],["B","UDP0119","G03","TCCGCCAATT","CTCCGTGCTG"],["B","UDP0120","H03","AGGACAGGCC","CATTCCAGCT"],["B","UDP0121","A04","AGAGAACCTA","GGTTATGCTA"],["B","UDP0122","B04","GATATTGTGT","ACCACACGGT"],["B","UDP0123","C04","CGTACAGGAA","TAGGTTCTCT"],["B","UDP0124","D04","CTGCGTTACC","TATGGCTCGA"],["B","UDP0125","E04","AGGCCGTGGA","CTCGTGCGTT"],["B","UDP0126","F04","AGGAGGTATC","CCAGTTGGCA"],["B","UDP0127","G04","GCTGACGTTG","TGTTCGCATT"],["B","UDP0128","H04","CTAATAACCG","AACCGCATCG"],["B","UDP0129","A05","TCTAGGCGCG","CGAAGGTTAA"],["B","UDP0130","B05","ATAGCCAAGA","AGTGCCACTG"],["B","UDP0131","C05","TTCGGTGTGA","GAACAAGTAT"],["B","UDP0132","D05","ATGTAACGTT","ACGATTGCTG"],["B","UDP0133","E05","AACGAGGCCG","ATACCTGGAT"],["B","UDP0134","F05","TGGTGTTATG","TCCAATTCTA"],["B","UDP0135","G05","TGGCCTCTGT","TGAGACAGCG"],["B","UDP0136","H05","CCAGGCACCA","ACGCTAATTA"],["B","UDP0137","A06","CCGGTTCCTA","TATATTCGAG"],["B","UDP0138","B06","GGCCAATATT","CGGTCCGATA"],["B","UDP0139","C06","GAATACCTAT","ACAATAGAGT"],["B","UDP0140","D06","TACGTGAAGG","CGGTTATTAG"],["B","UDP0141","E06","CTTATTGGCC","GATAACAAGT"],["B","UDP0142","F06","ACAACTACTG","AGTTATCACA"],["B","UDP0143","G06","GTTGGATGAA","TTCCAGGTAA"],["B","UDP0144","H06","AATCCAATTG","CATGTAGAGG"],["B","UDP0145V3","A07","GTGCTAGGTT","TGAATATTGC"],["B","UDP0146V3","B07","ACAGCGACCA","CAGGAGCTCT"],["B","UDP0147V3","C07","TCCACACAGA","TTGTCGGATG"],["B","UDP0148V3","D07","AAGTGTTAGG","GCTAGTTCCG"],["B","UDP0149","E07","GATTCTGAAT","AGCGGTGGAC"],["B","UDP0150","F07","TAGAGAATAC","TATAGATTCG"],["B","UDP0151","G07","TTGTATCAGG","ACAGAGGCCA"],["B","UDP0152","H07","CACAGCGGTC","ATTCCTATTG"],["B","UDP0153","A08","CCACGCTGAA","TATTCCTCAG"],["B","UDP0154","B08","GTTCGGAGTT","CGCCTTCTGA"],["B","UDP0155V3","C08","ATGTCGTATT","TTCTTGCTGG"],["B","UDP0156","D08","GCAATATTCA","GGCGCCAATT"],["B","UDP0157","E08","CTAGATTGCG","AGATATGGCG"],["B","UDP0158","F08","CGATGCGGTT","CCTGCTTGGT"],["B","UDP0159","G08","TCCGGACTAG","GACGAACAAT"],["B","UDP0160","H08","GTGACGGAGC","TGGCGGTCCA"],["B","UDP0161","A09","AATTCCATCT","CTTCAGTTAC"],["B","UDP0162","B09","TTAACGGTGT","TCCTGACCGT"],["B","UDP0163","C09","ACTTGTTATC","CGCGCCTAGA"],["B","UDP0164","D09","CGTGTACCAG","AGGATAAGTT"],["B","UDP0165","E09","TTAACCTTCG","AGGCCAGACA"],["B","UDP0166","F09","CATATGCGAT","CCTTGAACGG"],["B","UDP0167","G09","AGCCTATGAT","CACCACCTAC"],["B","UDP0168","H09","TATGACAATC","TTGCTTGTAT"],["B","UDP0169","A10","ATGTTGTTGG","CAATCTATGA"],["B","UDP0170","B10","GCACCACCAA","TGGTACTGAT"],["B","UDP0171","C10","AGGCGTTCGC","TTCATCCAAC"],["B","UDP0172","D10","CCTCCGGTTG","CATAACACCA"],["B","UDP0173","E10","GTCCACCGCT","TCCTATTAGC"],["B","UDP0174","F10","ATTGTTCGTC","TCTCTAGATT"],["B","UDP0175","G10","GGACCAGTGG","CGCGAGCCTA"],["B","UDP0176","H10","CCTTCTAACA","GATAAGCTCT"],["B","UDP0177","A11","CTCGAATATA","GAGATGTCGA"],["B","UDP0178","B11","GATCGTCGCG","CTGGATATGT"],["B","UDP0179V3","C11","CCGACCTGTC","TGCTCATAAC"],["B","UDP0180","D11","CGCTGTCTCA","ATTACTCACC"],["B","UDP0181","E11","AATGCGAACA","AATTGGCGGA"],["B","UDP0182","F11","AATTCTTGGA","TTGTCAACTT"],["B","UDP0183","G11","TTCCTACAGC","GGCGAATTCT"],["B","UDP0184","H11","ATCCAGGTAT","CAACGTCAGC"],["B","UDP0185","A12","ACGGTCCAAC","TCTTACATCA"],["B","UDP0186","B12","GTAACTTGGT","CGCCATACCT"],["B","UDP0187","C12","AGCGCCACAC","CTAATGTCTT"],["B","UDP0188","D12","TGCTACTGCC","CAACCGGAGG"],["B","UDP0189","E12","CAACACCGCA","GGCAGTAGCA"],["B","UDP0190","F12","CACCTTAATC","TTAGGATAGA"],["B","UDP0191","G12","TTGAATGTTG","CGCAATCTAG"],["B","UDP0192","H12","CCGGTAACAC","GAGTTGTACT"],["C","UDP0193V3","A01","ATCGTTACGG","GCTCCGGAAG"],["C","UDP0194V3","B01","TCCTACGTCA","TACTTAAGTG"],["C","UDP0195V3","C01","GTTATATCGC","AAGACAAGGA"],["C","UDP0196V3","D01","GTTGGCCATC","TGACATTCGT"],["C","UDP0197","E01","TCCTGGTTGT","CTGACCGGCA"],["C","UDP0198","F01","TAATTCTGCT","TCTCATCAAT"],["C","UDP0199","G01","CGCACGACTG","GGACCAACAG"],["C","UDP0200","H01","GAGGTTAGAC","AATGTATTGC"],["C","UDP0201","A02","AACCGAGTTC","GATCTCTGGA"],["C","UDP0202","B02","TGTGATAACT","CAGGCGCCAT"],["C","UDP0203","C02","AGTATGCTAC","TTAATAGACC"],["C","UDP0204","D02","GTAACTGAAG","GGAGTCGCGA"],["C","UDP0205","E02","TCCTCGGACT","AACGCCAGAG"],["C","UDP0206","F02","CTGGAACTGT","CGTAATTAAC"],["C","UDP0207","G02","GAATATGCGG","ACGAGACTGA"],["C","UDP0208","H02","GATCGGATAA","GTATCGGCCG"],["C","UDP0209","A03","GCTAGACTAT","AATACGACAT"],["C","UDP0210","B03","AGCTACTATA","GTTATATGGC"],["C","UDP0211","C03","CCACCGGAGT","GCCTGCCATG"],["C","UDP0212","D03","CTTACCGCAC","TAAGACCTAT"],["C","UDP0213","E03","TTAGGATATC","TATACCATGG"],["C","UDP0214","F03","TTATACGCGA","GCCGTCTGTT"],["C","UDP0215","G03","CGCTTAGAAT","CAGAGTGATA"],["C","UDP0216","H03","CCGAAGCGCT","TGCTAACTAT"],["C","UDP0217","A04","CACTATCAAC","TCAGTTAATG"],["C","UDP0218V3","B04","CATCTACGTA","TGTAATTGAG"],["C","UDP0219","C04","TTACAGTTAG","ACATGCATAT"],["C","UDP0220","D04","CTAAGTACGC","AACATACCTA"],["C","UDP0221V3","E04","CTAGAGCGCA","GCTTCTAGCA"],["C","UDP0222V3","F04","TCGATCACGC","CATAGAGCCT"],["C","UDP0223V3","G04","AACCTGGCTC","TGAGTATGTT"],["C","UDP0224V3","H04","TTATGGAAGT","GACAATAACA"],["C","UDP0225","A05","TAGTGGAAGC","AGTACCTATA"],["C","UDP0226","B05","CGCCATATCT","GACCGGAGAT"],["C","UDP0227V3","C05","GCAGCCTCAA","TAAGTGCTAG"],["C","UDP0228","D05","ACTAGCGCTA","TTACTTCCTC"],["C","UDP0229","E05","GCTCTTAACT","CACGTCCACC"],["C","UDP0230","F05","GTGGTATCTG","GCTACTATCT"],["C","UDP0231","G05","TGACGGCCGT","AGTCAACCAT"],["C","UDP0232","H05","CAGTAATTAC","CGAGGCGGTA"],["C","UDP0233","A06","TACAAGACTT","CAGGTGTTCA"],["C","UDP0234","B06","CTGTGGTGAC","GACAGACAGG"],["C","UDP0235","C06","CTCCACTAAT","TGTACTTGTT"],["C","UDP0236","D06","ATAGTTAGCA","CTCTAAGTAG"],["C","UDP0237","E06","ATAGGTCTTA","GTCACCACAG"],["C","UDP0238","F06","TTCTTAACCA","TCTACATACC"],["C","UDP0239","G06","AAGGAAGAGT","CACGTTAGGC"],["C","UDP0240","H06","GGAAGGAGAC","TGGTGAGTCT"],["C","UDP0241","A07","TGAACGCGGA","CTTCGAAGGA"],["C","UDP0242V3","B07","AAGAGAGTCT","TACGAATCTT"],["C","UDP0243","C07","TTCATGGTTC","GACATTGTCA"],["C","UDP0244V3","D07","CTCTCGGCTA","TACCAGATCT"],["C","UDP0245","E07","CACTAGACCA","ACTGCCTTAT"],["C","UDP0246","F07","ATTATCCACT","TACGCACGTA"],["C","UDP0247","G07","ATGGCGTGCC","CGCTTGAAGT"],["C","UDP0248","H07","TCCAGAGATC","CTGCACTTCA"],["C","UDP0249","A08","ATGTCCAGCA","CAGCGGACAA"],["C","UDP0250","B08","CAACGTTCGG","GGATCCGCAT"],["C","UDP0251","C08","GCGTATTAAT","TGCGGTGTTG"],["C","UDP0252V2","D08","CCGAATCTGG","ATGAATCAAG"],["C","UDP0253","E08","TCTCAATACC","GACGTTCGCG"],["C","UDP0254","F08","AAGCATCTTG","CATTCAACAA"],["C","UDP0255","G08","TCAGTCTCGT","CACGGATTAT"],["C","UDP0256V3","H08","GTATAGAACA","TGTCACAGGA"],["C","UDP0257","A09","GTAACAATCT","CTCTGTATAC"],["C","UDP0258V2","B09","CCATGGTATA","TCTCGCGGAG"],["C","UDP0259","C09","TCATACCGTT","GGTAACGCAG"],["C","UDP0260","D09","GGCGCCATTG","ACCGCGCAAT"],["C","UDP0261","E09","AGCGAATTAG","AGCCGGAACA"],["C","UDP0262","F09","TTAGACCATG","TCCTAGGAAG"],["C","UDP0263","G09","CACACAGTAT","TTGAGCCTAA"],["C","UDP0264","H09","TCTTGTCGGC","CCACCTGTGT"],["C","UDP0265V3","A10","CTAACCGAGA","TCGATGCGCG"],["C","UDP0266V3","B10","AGTGTCTAGG","CCTAGAAGCA"],["C","UDP0267V3","C10","GAGGAGCTTC","GACGTATACA"],["C","UDP0268V3","D10","TCATCTACTA","TAGGCGACTT"],["C","UDP0269","E10","GTAGGCGAGC","TAGGAGCGCA"],["C","UDP0270","F10","AACTTATCCT","GTACTGGCGT"],["C","UDP0271","G10","ATTATGTCTC","AGTTAAGAGC"],["C","UDP0272","H10","TATAACAGCT","TCGCGTATAA"],["C","UDP0273","A11","CCAATGATAC","GAGTGTGCCG"],["C","UDP0274","B11","GAGGCCTATT","CTAGTCCGGA"],["C","UDP0275","C11","AGCTAAGCGG","ATTAATACGC"],["C","UDP0276","D11","CTTCCTAGGA","CCTAGAGTAT"],["C","UDP0277","E11","CGATCTGTGA","TAGGAAGACT"],["C","UDP0278","F11","GTGGACAAGT","CCGTGGCCTT"],["C","UDP0279","G11","AACAAGTACA","GGATATATCC"],["C","UDP0280","H11","AGATTAAGTG","CACCTCTTGG"],["C","UDP0281","A12","TATCACTCTG","AACGTTACAT"],["C","UDP0282","B12","AGAATTCGCC","CGGCAAGCTC"],["C","UDP0283","C12","CCTGACCACT","TCTTGGCTAT"],["C","UDP0284","D12","AGCTGGAATG","ACGGAATGCG"],["C","UDP0285V3","E12","CCTTGGCATC","GACCGATTCG"],["C","UDP0286V3","F12","TATAGGTACT","TAGGTGAGAT"],["C","UDP0287V3","G12","CAAGTCTACA","CACGTACGTG"],["C","UDP0288V3","H12","GAGAAGAGGA","TTGACCTAAC"],["D","UDP0289V2","A01","AGATAGTAGC","GGCACGCCAT"],["D","UDP0290V2","B01","ATTAGAAGAC","GCAGGCTGGA"],["D","UDP0291V2","C01","GCTCGCACAT","ATGGCTTAAT"],["D","UDP0292","D01","AATATTGCCA","CGGTGACACC"],["D","UDP0293","E01","TCGTGCATTC","GCGTTGGTAT"],["D","UDP0294","F01","AAGATACACG","TGTGCTAACA"],["D","UDP0295","G01","TGCAATGAAT","CCAGAAGTAA"],["D","UDP0296","H01","CTATGAAGGA","CTTATACCTG"],["D","UDP0297","A02","GAAGACTAGA","ACTAGAACTT"],["D","UDP0298V3","B02","CCAGGTTATC","GAATGCAGTT"],["D","UDP0299","C02","TTCACTCACT","TATCATGAGA"],["D","UDP0300","D02","GGTCCGCTTC","CTCACACAAG"],["D","UDP0301V2","E02","TAGTGGCTTG","AGTTACTTGG"],["D","UDP0302","F02","ATTGAGGTCC","CGGATTATAT"],["D","UDP0303","G02","GGAGAGACTC","TTGAAGCAGA"],["D","UDP0304","H02","CCGCTCCGTT","TACGGCGAAG"],["D","UDP0305","A03","ATACATCACA","TCTCCATTGA"],["D","UDP0306","B03","TAGGTATGTT","CGAGACCAAG"],["D","UDP0307","C03","CACCTAGCAC","TGCTGGACAT"],["D","UDP0308","D03","TTCAAGTATG","GATGGTATCG"],["D","UDP0309","E03","TTAAGACAAG","GGCTTAATTG"],["D","UDP0310","F03","CACCTCTCTT","CTCGACTCCT"],["D","UDP0311","G03","TTCTCGTGCA","ATACACAGAG"],["D","UDP0312","H03","GCTAGGAAGT","TCTCGGACGA"],["D","UDP0313","A04","TTAATAGCAC","ACCACGTCTG"],["D","UDP0314","B04","CATTCACGCT","GTTGTACTCA"],["D","UDP0315","C04","GGCACTAAGG","TCAGGTCAAC"],["D","UDP0316","D04","ATTCGGTACA","AGTCCGAGGA"],["D","UDP0317","E04","ACTAATCTCC","CACTTAATCT"],["D","UDP0318","F04","TGTGTTAGTA","TACTCTGTTA"],["D","UDP0319","G04","CAACGACCTA","GCGACTCGAT"],["D","UDP0320","H04","CGGTCGGCAT","CTAGGCAAGG"],["D","UDP0321V3","A05","GTAACTCCGC","AATAGAACGG"],["D","UDP0322","B05","CTCGTAGGCA","TCATCCTCTT"],["D","UDP0323","C05","AAGTTCTAGT","GGTAAGATAA"],["D","UDP0324","D05","CCAAGAGGTG","AACGAGCCAG"],["D","UDP0325","E05","ATATCTGCTT","TAGACAATCT"],["D","UDP0326","F05","TGGATCTGGC","CAATGCTGAA"],["D","UDP0327","G05","TTGAATCCAA","GTCACGGTGT"],["D","UDP0328","H05","CACGGCTAGT","GGTGTACAAG"],["D","UDP0329","A06","GAGCTTGCCG","AGGTTGCAGG"],["D","UDP0330","B06","AGCTAGCTTC","TAATACGGAG"],["D","UDP0331","C06","CAATCCTTGT","CGAAGACGCA"],["D","UDP0332","D06","CACCTGTTGC","ATTGACACAT"],["D","UDP0333","E06","CGTCACCTTG","CAGCCGATTG"],["D","UDP0334","F06","AATGACTGGT","TCTCACGCGT"],["D","UDP0335","G06","ATGATTCCGG","CTCTGACGTG"],["D","UDP0336","H06","TTAGGCTCAA","TCGAATGGAA"],["D","UDP0337","A07","TGTAAGGTGG","AAGGCCTTGG"],["D","UDP0338","B07","CAACTGCAAC","TGAACGCAAC"],["D","UDP0339","C07","ACATGAGTGA","CCGCTTAGCT"],["D","UDP0340","D07","GCAACCAGTC","CACCGAGGAA"],["D","UDP0341","E07","GAGCGACGAT","CGTATAATCA"],["D","UDP0342","F07","CGAACGCACC","ATGACAGAAC"],["D","UDP0343","G07","TCTTACGCCG","ATTCATTGCA"],["D","UDP0344","H07","AGCTGATGTC","TCATGTCCTG"],["D","UDP0345","A08","CTGAATTAGT","AATTCGATCG"],["D","UDP0346","B08","TAAGGAGGAA","TTCCGACATT"],["D","UDP0347","C08","AGCTTACACA","TGGCACGACC"],["D","UDP0348","D08","AACCAGCCAC","GCCACAGCAC"],["D","UDP0349","E08","CTTAAGTCGA","CAGTAGTTGT"],["D","UDP0350","F08","GCCTAACGTG","AGCTCTCAAG"],["D","UDP0351","G08","ACTTACTTCA","TCTGGAATTA"],["D","UDP0352","H08","CGCATTCCGT","ATTAGTGGAG"],["D","UDP0353","A09","GATATCACAC","GACTATATGT"],["D","UDP0354","B09","AGCGCTGTGT","CGTTCGGAAC"],["D","UDP0355","C09","TCACCGCGCT","TCGATACTAG"],["D","UDP0356","D09","GATAGCCTTG","TACCACAATG"],["D","UDP0357","E09","CCTGGACGCA","TGGTATACCA"],["D","UDP0358","F09","TTACGCACCT","GCTCTCGTTG"],["D","UDP0359","G09","TCGTTGCTGC","GTCTCGTGAA"],["D","UDP0360","H09","CGACAAGGAT","AAGGCCACCT"],["D","UDP0361","A10","GTGTACCTTC","CTGTGAGCTA"],["D","UDP0362","B10","ACCTGGCCAA","TCACAGATCG"],["D","UDP0363","C10","TGTCTGGCCT","AGAAGCCAAT"],["D","UDP0364","D10","AGTTAATGCT","ACTGCAGCCG"],["D","UDP0365","E10","GGTGAGTAAT","AACATCTAGT"],["D","UDP0366","F10","TACTCTGCGC","CCTTACTATG"],["D","UDP0367","G10","AGGTATGGCG","GTGGCGAGAC"],["D","UDP0368","H10","TCCAGCCTGC","GCCAGATCCA"],["D","UDP0369V3","A11","GATGAATTCA","TGCTGTGATT"],["D","UDP0370V3","B11","ATCCGGCAGC","GATCGAATAA"],["D","UDP0371V3","C11","ACGAACCATG","ACTGAATTAC"],["D","UDP0372V3","D11","CAACCAAGTA","CCATCCACGC"],["D","UDP0373","E11","GTTGCGTTCA","GTTGCAGTTG"],["D","UDP0374","F11","CTTCAACCAC","TTATGCGCCT"],["D","UDP0375","G11","TCTATTCAGT","TCTCAGTACA"],["D","UDP0376","H11","CAAGACGTCC","AGTATACGGA"],["D","UDP0377","A12","TGAGTACAAC","ACGCTTGGAC"],["D","UDP0378","B12","CCGCGGTTCT","GGAGTAGATT"],["D","UDP0379","C12","ATTGATACTG","TACACGCTCC"],["D","UDP0380","D12","GGATTATGGA","TCCGATAGAG"],["D","UDP0381","E12","TGGTTCTCAT","CTCAAGGCCG"],["D","UDP0382","F12","TCAACCACGA","CAAGTTCATA"],["D","UDP0383","G12","TATGAACTTG","AATCCTTAGG"],["D","UDP0384","H12","AGTGGTTAAG","GGTGGAATAC"]];
+</script>
+<script>
+const BASE_INFO = {
+  A:{color:'both',label:'A',bg:'bg-both',fg:'fg-both'},
+  C:{color:'blue',label:'C',bg:'bg-blue',fg:'fg-blue'},
+  G:{color:'dark',label:'G',bg:'bg-dark',fg:'fg-dark'},
+  T:{color:'green',label:'T',bg:'bg-green',fg:'fg-green'}
+};
+const COLOR_LABEL={blue:'blue',green:'green',both:'blue/green',dark:'no signal'};
+const I7_MAP=Object.fromEntries(INDEX_DATA.map(r=>[r[3],r]));
+const I5_MAP=Object.fromEntries(INDEX_DATA.map(r=>[r[4],r]));
+
+const seqInput=document.getElementById('seqInput');
+const inputMeta=document.getElementById('inputMeta');
+const inputMeta2=document.getElementById('inputMeta2');
+const errorBox=document.getElementById('errorBox');
+const resultsArea=document.getElementById('resultsArea');
+const kitSel=document.getElementById('kitSel');
+const idxSearch=document.getElementById('idxSearch');
+const idxList=document.getElementById('idxList');
+const selCount=document.getElementById('selCount');
+const readToggle=document.getElementById('readToggle');
+
+let currentMode='paste';
+let currentRead='both';
+const selected=new Set();   // keys: kit|name
+
+const EXAMPLE=`GAACTGAGCG
+AGGTCAGATA
+CGACATCCGA
+ATTCCATAAG
+CACAATAGGA
+GAAGCGGCAC
+CTAGTGCTCT
+GATCAAGGCA
+GACTGAGTAG
+AGTCAGACGA
+CCGTATGTTC
+GAGTCATAGG`;
+
+/* ---------- mode tabs ---------- */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    currentMode=t.dataset.mode;
+    document.getElementById('pasteMode').classList.toggle('hidden-mode',currentMode!=='paste');
+    document.getElementById('selectMode').classList.toggle('hidden-mode',currentMode!=='select');
+    errorBox.innerHTML='';
+    if(currentMode==='paste') analyze(); else analyzeSelected();
+  });
+});
+
+/* ---------- paste mode ---------- */
+document.getElementById('loadExample').addEventListener('click',()=>{seqInput.value=EXAMPLE;analyze();});
+document.getElementById('analyzeBtn').addEventListener('click',analyze);
+
+/* ---------- select mode ---------- */
+kitSel.addEventListener('change',renderIdxList);
+idxSearch.addEventListener('input',filterIdxList);
+document.getElementById('analyzeBtn2').addEventListener('click',analyzeSelected);
+document.getElementById('selAll').addEventListener('click',()=>{
+  visibleItems().forEach(el=>{
+    selected.add(el.dataset.key);
+    const cb=el.querySelector('input');if(cb)cb.checked=true;else el.classList.add('sel');
+  });
+  updateSelCount();updateAxisHighlights();
+});
+document.getElementById('selNone').addEventListener('click',()=>{
+  selected.clear();
+  idxList.querySelectorAll('.plate-cell').forEach(c=>c.classList.remove('sel'));
+  idxList.querySelectorAll('.idx-item input').forEach(cb=>cb.checked=false);
+  updateSelCount();updateAxisHighlights();
+});
+readToggle.querySelectorAll('button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    readToggle.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');currentRead=b.dataset.read;
+    analyzeSelected();
+  });
+});
+
+function recordsForKit(kit){return INDEX_DATA.filter(r=>r[0]===kit);}
+function renderIdxList(){
+  const kit=kitSel.value;
+  const wellMap={};
+  recordsForKit(kit).forEach(r=>{wellMap[r[2]]=r;});
+  const rows=['A','B','C','D','E','F','G','H'];
+  const cols=['01','02','03','04','05','06','07','08','09','10','11'];
+  cols.push('12');
+  let html='<div class="plate-grid"><table class="plate-table"><thead><tr><th class="plate-corner"></th>';
+  cols.forEach(c=>html+=`<th class="plate-head" data-col="${c}">${+c}</th>`);
+  html+='</tr></thead><tbody>';
+  rows.forEach(row=>{
+    html+=`<tr><th class="plate-head" data-row="${row}">${row}</th>`;
+    cols.forEach(col=>{
+      const well=row+col;const r=wellMap[well];
+      if(r){
+        const key=r[0]+'|'+r[1];
+        const sel=selected.has(key)?' sel':'';
+        html+=`<td><div class="plate-cell${sel}" data-key="${key}" data-row="${row}" data-col="${col}" data-search="${(r[1]+' '+r[2]).toLowerCase()}" title="${r[1]} · ${r[2]}">${r[1].slice(3)}</div></td>`;
+      } else html+='<td></td>';
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  idxList.innerHTML=html;
+  idxList.classList.add('plate-mode');
+  idxList.querySelectorAll('.plate-cell').forEach(cell=>{
+    cell.addEventListener('click',()=>{
+      const key=cell.dataset.key;
+      if(cell.classList.contains('sel')){selected.delete(key);cell.classList.remove('sel');}
+      else{selected.add(key);cell.classList.add('sel');}
+      updateSelCount();updateAxisHighlights();
+    });
+  });
+  idxList.querySelectorAll('.plate-head[data-row]').forEach(rh=>{
+    rh.addEventListener('click',()=>{
+      const cells=[...idxList.querySelectorAll(`.plate-cell[data-row="${rh.dataset.row}"]:not(.filt-hidden)`)];
+      const allSel=cells.every(c=>c.classList.contains('sel'));
+      cells.forEach(c=>{allSel?(selected.delete(c.dataset.key),c.classList.remove('sel')):(selected.add(c.dataset.key),c.classList.add('sel'));});
+      updateSelCount();updateAxisHighlights();
+    });
+  });
+  idxList.querySelectorAll('.plate-head[data-col]').forEach(ch=>{
+    ch.addEventListener('click',()=>{
+      const cells=[...idxList.querySelectorAll(`.plate-cell[data-col="${ch.dataset.col}"]:not(.filt-hidden)`)];
+      const allSel=cells.every(c=>c.classList.contains('sel'));
+      cells.forEach(c=>{allSel?(selected.delete(c.dataset.key),c.classList.remove('sel')):(selected.add(c.dataset.key),c.classList.add('sel'));});
+      updateSelCount();updateAxisHighlights();
+    });
+  });
+  filterIdxList();updateSelCount();
+}
+function visibleItems(){
+  if(idxList.classList.contains('search-mode'))
+    return [...idxList.querySelectorAll('.idx-item')];
+  return [...idxList.querySelectorAll('.plate-cell:not(.filt-hidden)')];
+}
+function filterIdxList(){
+  const q=idxSearch.value.trim().toLowerCase();
+  if(!q){
+    if(idxList.classList.contains('search-mode')){idxList.classList.remove('search-mode');renderIdxList();}
+    else{idxList.querySelectorAll('.plate-cell').forEach(c=>c.classList.remove('filt-hidden'));updateAxisHighlights();}
+    return;
+  }
+  const matches=INDEX_DATA.filter(r=>(r[1]+' '+r[2]).toLowerCase().includes(q));
+  idxList.classList.remove('plate-mode');
+  idxList.classList.add('search-mode');
+  idxList.innerHTML=matches.length===0
+    ?'<div style="padding:10px;color:var(--ink-faint);font-size:13px;">No matches.</div>'
+    :matches.map(r=>{
+        const key=r[0]+'|'+r[1];
+        return `<label class="idx-item" data-key="${key}" data-search="${(r[1]+' '+r[2]).toLowerCase()}">`+
+          `<input type="checkbox" ${selected.has(key)?'checked':''}>`+
+          `<span class="nm">${r[1]}</span><span class="wl">${r[2]}</span>`+
+          `<span style="color:var(--ink-faint);font-size:12px;margin-left:6px;font-family:var(--mono);">Kit&nbsp;${r[0]}</span></label>`;
+      }).join('');
+  idxList.querySelectorAll('.idx-item input').forEach(cb=>{
+    cb.addEventListener('change',e=>{
+      const key=e.target.closest('.idx-item').dataset.key;
+      if(e.target.checked) selected.add(key); else selected.delete(key);
+      updateSelCount();
+    });
+  });
+}
+function updateAxisHighlights(){
+  idxList.querySelectorAll('.plate-head[data-col]').forEach(ch=>{
+    const cells=[...idxList.querySelectorAll(`.plate-cell[data-col="${ch.dataset.col}"]:not(.filt-hidden)`)];
+    ch.classList.toggle('all-sel',cells.length>0&&cells.every(c=>c.classList.contains('sel')));
+  });
+  idxList.querySelectorAll('.plate-head[data-row]').forEach(rh=>{
+    const cells=[...idxList.querySelectorAll(`.plate-cell[data-row="${rh.dataset.row}"]:not(.filt-hidden)`)];
+    rh.classList.toggle('all-sel',cells.length>0&&cells.every(c=>c.classList.contains('sel')));
+  });
+}
+function updateSelCount(){selCount.textContent=`${selected.size} selected`;}
+
+function selectedRecords(){
+  return [...selected].map(k=>{const[kit,name]=k.split('|');return INDEX_DATA.find(r=>r[0]===kit&&r[1]===name);})
+    .filter(Boolean)
+    .sort((a,b)=>a[1].localeCompare(b[1]));
+}
+
+/* ---------- analysis ---------- */
+function parseInput(raw){
+  const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+  const sequences=[],errors=[];const re=/^[ACGTUNacgtun]+$/;
+  lines.forEach((line,i)=>{
+    const tok=line.split(/[\s,]+/).filter(t=>t.length>0);
+    let cand=tok.filter(t=>re.test(t)&&t.length>1);
+    if(cand.length===0&&tok.length>0){const last=tok[tok.length-1];if(/^[A-Za-z]+$/.test(last))cand=[last];}
+    if(cand.length===0){errors.push(`Line ${i+1}: no recognizable sequence found ("${line.slice(0,40)}")`);return;}
+    const labelToks=tok.filter(t=>!cand.includes(t));
+    const baseLabel=labelToks.length?labelToks.join(' '):String(i+1);
+    cand.forEach((s,j)=>{
+      const seq=s.toUpperCase().replace(/U/g,'T');const bad=seq.replace(/[ACGTN]/g,'');
+      if(bad.length>0){errors.push(`Line ${i+1}: unrecognized character(s) "${[...new Set(bad)].join('')}" in "${s}"`);return;}
+      const label=cand.length>1?`${baseLabel}.${j+1}`:baseLabel;
+      sequences.push({seq,label});
+    });
+  });
+  return {sequences,errors};
+}
+
+function analyze(){
+  const {sequences,errors}=parseInput(seqInput.value);
+  errorBox.innerHTML=errors.length?errors.map(e=>`&middot; ${escapeHtml(e)}`).join('<br>'):'';
+  if(sequences.length===0){inputMeta.textContent='0 sequences loaded';finishAnalyze(sequences);return;}
+
+  const tagged=sequences.map(s=>{
+    const r7=I7_MAP[s.seq];if(r7)return{type:'i7',rec:r7,orig:s};
+    const r5=I5_MAP[s.seq];if(r5)return{type:'i5',rec:r5,orig:s};
+    return{type:'unknown',rec:null,orig:s};
+  });
+  const allI7=tagged.every(x=>x.type==='i7');
+  const allI5=tagged.every(x=>x.type==='i5');
+
+  if(allI7||allI5){
+    const i7seqs=tagged.map(x=>({seq:x.rec[3],labelParts:[x.rec[0],x.rec[1],x.rec[2]]}));
+    const i5seqs=tagged.map(x=>({seq:x.rec[4],labelParts:[x.rec[0],x.rec[1],x.rec[2]]}));
+    const maxLen7=Math.max(...i7seqs.map(s=>s.seq.length));
+    const maxLen5=Math.max(...i5seqs.map(s=>s.seq.length));
+    inputMeta.textContent=`${sequences.length} sequence${sequences.length===1?'':'s'} · matched as ${allI7?'i7':'i5'} · showing paired i7+i5`;
+    resultsArea.innerHTML=
+      `<div class="panel" style="padding:14px 22px;margin-bottom:16px;">${buildLegend()}</div>`+
+      `<div class="panel" style="padding-bottom:18px;">`+
+        `<div style="display:flex;gap:0;align-items:stretch;flex-wrap:nowrap;">`+
+          `<div style="flex:0 0 auto;display:flex;flex-direction:column;padding-right:10px;margin-right:10px;border-right:1px solid var(--panel-border);">${render(i7seqs,maxLen7,{showLegend:false,showLabels:true,wrapPanel:false,bare:true,title:'Index 1 (i7)'})}</div>`+
+          `<div style="flex:0 0 auto;display:flex;flex-direction:column;">${render(i5seqs,maxLen5,{showLegend:false,showLabels:false,wrapPanel:false,bare:true,title:'Index 2 (i5)'})}</div>`+
+        `</div>`+
+      `</div>`;
+  } else {
+    const nMatched=tagged.filter(x=>x.rec).length;
+    const matchNote=nMatched>0?` · ${nMatched}/${sequences.length} matched in UD database`:'';
+    inputMeta.textContent=`${sequences.length} sequence${sequences.length===1?'':'s'} loaded${matchNote}`;
+    const labeled=tagged.map(x=>x.rec
+      ?{seq:x.orig.seq,label:`${x.rec[0]} | ${x.rec[1]} | ${x.rec[2]}`,labelParts:[x.rec[0],x.rec[1],x.rec[2]]}
+      :x.orig);
+    finishAnalyze(labeled);
+  }
+}
+
+function analyzeSelected(){
+  const recs=selectedRecords();
+  errorBox.innerHTML='';
+  if(currentRead==='both'){
+    const i7seqs=recs.map(r=>({seq:r[3],label:`${r[0]} | ${r[1]} | ${r[2]}`,labelParts:[r[0],r[1],r[2]]}));
+    const i5seqs=recs.map(r=>({seq:r[4],label:`${r[0]} | ${r[1]} | ${r[2]}`,labelParts:[r[0],r[1],r[2]]}));
+    inputMeta2.textContent=`${recs.length} index${recs.length===1?'':'es'} (${recs.length*2} i7+i5 sequences)`;
+    if(recs.length===0){resultsArea.innerHTML='<div class="panel"><div class="empty-state">Select indexes from the kit above.</div></div>';return;}
+    const maxLen7=Math.max(...i7seqs.map(s=>s.seq.length));
+    const maxLen5=Math.max(...i5seqs.map(s=>s.seq.length));
+    resultsArea.innerHTML=
+      `<div class="panel" style="padding:14px 22px;margin-bottom:16px;">${buildLegend()}</div>` +
+      `<div class="panel" style="padding-bottom:18px;">` +
+        `<div style="display:flex;gap:0;align-items:stretch;flex-wrap:nowrap;">` +
+          `<div style="flex:0 0 auto;display:flex;flex-direction:column;padding-right:10px;margin-right:10px;border-right:1px solid var(--panel-border);">${render(i7seqs,maxLen7,{showLegend:false,showLabels:true,wrapPanel:false,bare:true,title:'Index 1 (i7)'})}</div>` +
+          `<div style="flex:0 0 auto;display:flex;flex-direction:column;">${render(i5seqs,maxLen5,{showLegend:false,showLabels:false,wrapPanel:false,bare:true,title:'Index 2 (i5)'})}</div>` +
+        `</div>` +
+      `</div>`;
+  } else {
+    const sequences=recs.map(r=>({seq:currentRead==='i7'?r[3]:r[4],label:`${r[0]} | ${r[1]} | ${r[2]}`,labelParts:[r[0],r[1],r[2]]}));
+    const readName=currentRead==='i7'?'i7':'i5';
+    inputMeta2.textContent=`${recs.length} index${recs.length===1?'':'es'} (${sequences.length} ${readName} sequences)`;
+    finishAnalyze(sequences);
+  }
+}
+
+function finishAnalyze(sequences){
+  if(sequences.length===0){
+    resultsArea.innerHTML='<div class="panel"><div class="empty-state">No sequences to analyze yet. '+
+      (currentMode==='paste'?'Paste sequences above, or load the example.':'Select indexes from the kit above.')+'</div></div>';
+    return;
+  }
+  const lengths=[...new Set(sequences.map(s=>s.seq.length))];
+  const maxLen=Math.max(...lengths);
+  if(lengths.length>1){
+    errorBox.innerHTML+=(errorBox.innerHTML?'<br>':'')+
+      `&middot; sequences have differing lengths (${lengths.sort((a,b)=>a-b).join(', ')}); shorter sequences are excluded from positions beyond their length`;
+  }
+  resultsArea.innerHTML=render(sequences,maxLen);
+}
+
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function computeStats(sequences,maxLen){
+  const positions=[];
+  for(let p=0;p<maxLen;p++){
+    const baseCounts={A:0,C:0,G:0,T:0,N:0};const colorCounts={blue:0,green:0,both:0,dark:0};let total=0;
+    sequences.forEach(o=>{const seq=o.seq;if(p>=seq.length)return;const b=seq[p];total++;
+      if(baseCounts[b]===undefined)baseCounts[b]=0;baseCounts[b]++;
+      if(BASE_INFO[b])colorCounts[BASE_INFO[b].color]++;});
+    positions.push({baseCounts,colorCounts,total});
+  }
+  return positions;
+}
+
+function buildLegend(){
+  return `<div class="plot-legend">
+    <div class="group"><span class="group-name">base composition:</span>
+      <span class="chip"><span class="swatch sw-bA"></span>A</span>
+      <span class="chip"><span class="swatch sw-bC"></span>C</span>
+      <span class="chip"><span class="swatch sw-bG"></span>G</span>
+      <span class="chip"><span class="swatch sw-bT"></span>T</span>
+    </div>
+    <div class="group"><span class="group-name">channel balance:</span>
+      <span class="chip"><span class="swatch sw-green"></span>green (A+T)</span>
+      <span class="chip"><span class="swatch sw-blue"></span>blue (A+C)</span>
+    </div>
+    <div class="group"><span class="group-name">channel flag:</span>
+      <span class="chip"><span style="color:var(--bad);font-weight:900;">✕</span>&nbsp;critical >90%</span>
+      <span class="chip"><span style="color:var(--warn);font-weight:900;font-size:16px;">!</span>&nbsp;marginal 80–90%</span>
+      <span class="chip"><span style="color:var(--good);">✔</span>&nbsp;balanced</span>
+    </div>
+  </div>`;
+}
+
+function buildLabelHtml(o){
+  if(!o.labelParts) return escapeHtml(o.label);
+  const [kit, name, well] = o.labelParts;
+  const nbsp = ' ';
+  const paddedName = escapeHtml(name) + nbsp.repeat(Math.max(0, 9 - name.length));
+  const sep = `${nbsp}<span style="color:var(--ink-faint)">|</span>${nbsp}`;
+  return `${escapeHtml(kit)}${sep}${paddedName}${sep}${escapeHtml(well)}`;
+}
+
+function render(sequences,maxLen,opts={}){
+  const showLegend = opts.showLegend !== false;
+  const showLabels = opts.showLabels !== false;
+  const positions=computeStats(sequences,maxLen);
+  const flagOn=true,floor=0.20;
+  const colspan = showLabels ? maxLen+2 : maxLen;
+  const gwExtra = opts.bare ? ' style="border:none;background:transparent;border-radius:0;"' : '';
+  const gsExtra = opts.bare ? ' style="display:inline-block;min-width:0;"' : '';
+  let html=`<div class="grid-wrap"${gwExtra}><div class="grid-scroll"${gsExtra}><table class="seq-table">`;
+
+  html+='<thead>';
+  if(opts.title){
+    html+='<tr>';
+    if(showLabels){html+='<th class="row-label-head idx-col" rowspan="2" style="border-bottom:none;vertical-align:bottom;">&nbsp;</th>';html+='<th class="lbl-spacer" rowspan="2"></th>';}
+    const titleHtml=opts.title.replace(/(i[57])/g,'<span style="text-transform:none">$1</span>');
+    html+=`<th colspan="${maxLen}" style="text-align:left;padding:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-faint);font-weight:600;">${titleHtml}</th>`;
+    html+='</tr>';
+  }
+  html+='<tr>';
+  if(showLabels && !opts.title){html+='<th class="row-label-head idx-col">&nbsp;</th>';html+='<th class="lbl-spacer"></th>';}
+  for(let p=0;p<maxLen;p++){const tick=(p+1)%5===0||p===0;html+=`<th class="pos-head ${tick?'tick':''}">${p+1}</th>`;}
+  html+='</tr></thead><tbody>';
+
+  sequences.forEach(o=>{
+    html+='<tr class="data-row">';
+    if(showLabels){html+=`<td class="idx-col">${buildLabelHtml(o)}</td>`;html+='<td class="lbl-spacer"></td>';}
+    for(let p=0;p<maxLen;p++){
+      if(p>=o.seq.length){html+='<td class="base-cell"></td>';continue;}
+      const b=o.seq[p],info=BASE_INFO[b];
+      if(!info){html+=`<td class="base-cell"><div class="bg" style="background:rgba(20,30,18,0.06)"></div><span class="ch" style="color:var(--ink-faint)">${b}</span></td>`;continue;}
+      html+=`<td class="base-cell"><div class="bg ${info.bg}"></div><span class="ch ${info.fg}">${info.label}</span></td>`;
+    }
+    html+='</tr>';
+  });
+
+  html+=`<tr class="summary-divider"><td colspan="${colspan}"></td></tr>`;
+
+  html+='<tr class="summary-row">';
+  if(showLabels){html+='<td class="summary-section-label">base<br>composition</td>';html+='<td class="lbl-spacer"></td>';}
+  positions.forEach((pos,p)=>{
+    const order=['A','C','G','T'];
+    const segs=order.map(b=>{const pc=pos.total>0?(pos.baseCounts[b]/pos.total)*100:0;
+      return pc>0?`<div class="mini-seg seg-b${b}" style="height:${pc}%"></div>`:'';}).join('');
+    const tip=order.map(b=>`${b}: <b>${pct(pos.baseCounts[b],pos.total)}</b> (${pos.baseCounts[b]||0})`).join('<br>');
+    html+=`<td class="stack-cell"><div class="bar-shell"><div class="mini-bar">${segs}</div><div class="stat-tip">pos ${p+1}<br>${tip}</div></div></td>`;
+  });
+  html+='</tr>';
+
+  html+='<tr class="summary-row">';
+  if(showLabels){html+='<td class="summary-section-label">channel<br>balance</td>';html+='<td class="lbl-spacer"></td>';}
+  positions.forEach((pos,p)=>{
+    const A=pos.baseCounts.A||0,C=pos.baseCounts.C||0,T=pos.baseCounts.T||0;
+    const blueSig=A+C, greenSig=A+T, sig=blueSig+greenSig;
+    const greenPc=sig>0?(greenSig/sig)*100:0, bluePc=sig>0?(blueSig/sig)*100:0;
+    const segs=(greenPc>0?`<div class="mini-seg seg-chGreen" style="height:${greenPc}%"></div>`:'')+
+               (bluePc>0?`<div class="mini-seg seg-chBlue" style="height:${bluePc}%"></div>`:'');
+    const tip=`green channel: <b>${Math.round(greenPc)}%</b> (A+T=${greenSig})<br>blue channel: <b>${Math.round(bluePc)}%</b> (A+C=${blueSig})`;
+    html+=`<td class="stack-cell"><div class="bar-shell"><div class="mini-bar">${segs||''}</div><div class="mid-line"></div><div class="stat-tip">pos ${p+1}<br>${tip}</div></div></td>`;
+  });
+  html+='</tr>';
+
+  if(flagOn){
+    html += '<tr class="flag-row">';
+    if(showLabels){html += '<td class="summary-section-label">channel<br>flag</td>';html+='<td class="lbl-spacer"></td>';}
+    positions.forEach(pos => {
+      const f = flagForPosition(pos, floor);
+      let cellHtml;
+      if (f.level === 'bad') {
+        cellHtml = '<span style="color:var(--bad);font-size:15px;font-weight:900;line-height:1;">✕</span>';
+      } else if (f.level === 'warn') {
+        cellHtml = '<span style="color:var(--warn);font-size:20px;font-weight:900;line-height:1;">!</span>';
+      } else {
+        cellHtml = '<span style="color:var(--good);font-size:20px;">✔</span>';
+      }
+      html += `<td class="flag-cell" title="${f.title}">${cellHtml}</td>`;
+    });
+    html += '</tr>';
+  }
+
+  const nBad=positions.filter(p=>flagForPosition(p,floor).level==='bad').length;
+  const nWarn=positions.filter(p=>flagForPosition(p,floor).level==='warn').length;
+  const nBalanced=positions.length-(nBad+nWarn);
+  const summaryHtml=`<span style="color:var(--bad)">${nBad} critical</span> &middot; `
+    +`<span style="color:var(--warn)">${nWarn} marginal</span> &middot; `
+    +`<span style="color:var(--good)">${nBalanced} balanced</span>`;
+  const labelSkip=showLabels?'<td colspan="2"></td>':'';
+  html+=`</tbody><tfoot><tr>${labelSkip}<td colspan="${maxLen}" style="text-align:left;padding:8px 0 4px;font-size:13px;color:var(--ink-dim);font-family:var(--sans);">${summaryHtml}</td></tr></tfoot></table></div></div>`;
+
+  const legendHtml = showLegend ? buildLegend() : '';
+  const inner = `${legendHtml}${html}`;
+  return opts.wrapPanel === false ? inner : `<div class="panel" style="padding-bottom:18px;">${inner}</div>`;
+}
+
+function pct(c,d){return d>0?Math.round((c/d)*100)+'%':'0%';}
+
+function flagForPosition(pos,floor){
+  if(pos.total===0)return{level:'ok',title:'no data'};
+  const A=pos.baseCounts.A||0,C=pos.baseCounts.C||0,T=pos.baseCounts.T||0;
+  const blueLit=(A+C)/pos.total,greenLit=(A+T)/pos.total;
+  const minLit=Math.min(blueLit,greenLit);
+  const weak=blueLit<=greenLit?'blue':'green';
+  if(minLit<=floor/2)return{level:'bad',title:`critical: ${weak} channel only ${Math.round(minLit*100)}% lit`};
+  if(minLit<=floor)return{level:'warn',title:`marginal: ${weak} channel ${Math.round(minLit*100)}% lit`};
+  return{level:'ok',title:`balanced: both channels >= ${Math.round(minLit*100)}% lit`};
+}
+
+renderIdxList();
+analyze();
+</script>
+</body>
+</html>
